@@ -1,4 +1,4 @@
-TRAINER_DATA = {
+CHARACTER_DATA = {
 	'o1': {
 		'monsters': {0: ('Jacana', 14), 1: ('Cleaf', 15)},
 		'dialog': {
