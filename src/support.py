@@ -4,6 +4,7 @@ from settings import *
 from os.path import join
 from os import walk
 from pytmx.util_pygame import load_pygame
+from pytmx import TiledMap
 
 # imports 
 def import_image(*path, alpha = True, format = 'png') -> Surface:
@@ -89,3 +90,10 @@ def check_connections(radius, entity, target, tolerance = 30) -> None | Literal[
         or entity.facing_direction == 'down' and relation.y > 0 and abs(relation.x) < tolerance \
         or entity.facing_direction == 'up' and relation.y < 0 and abs(relation.x) < tolerance :
             return True
+
+def tmx_importer(*path) -> dict[TiledMap]:
+    tmx_dict = {}
+    for folder_path, sub_folders, file_names in walk(join(*path)):
+        for file in file_names:
+            tmx_dict[file.split('.')[0]] = load_pygame(join(folder_path, file))
+    return tmx_dict

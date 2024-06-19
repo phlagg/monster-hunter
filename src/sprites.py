@@ -30,6 +30,15 @@ class AnimatedSprite(Sprite):
     def update(self, dt) -> None:
         self.animate(dt)
 
+class TransitionSprite(Sprite):
+    """Sprite for level/state transitions"""
+    def __init__(self, pos, size, target, groups) -> None:
+        surf = pygame.Surface(size)
+        super().__init__(pos, surf, groups)
+        self.target = target
+
+    
+
 class BorderSprite(Sprite):
     """Sprite for border collision areas"""
     def __init__(self, pos, surf, groups) -> None:

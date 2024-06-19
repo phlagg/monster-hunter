@@ -1,5 +1,8 @@
 from settings import *
 from pygame import Surface, FRect
+from support import check_connections
+from timer import Timer
+from random import choice
 
 
 
@@ -52,16 +55,69 @@ class Entity(pygame.sprite.Sprite):
 
 class Character(Entity):
     """Non-player Character Sprite"""
-    def __init__(self, pos, facing_direction, frames, groups, character_data) -> None:
+    def __init__(self, pos, facing_direction, frames, groups, \
+                character_data, player, create_dialog, collision_sprites, radius) -> None:
         super().__init__(pos, facing_direction, frames, groups)
         self.character_data = character_data
+        self.player = player
+        self.create_dialog = create_dialog
+        self.collision_rects = [sprite.rect for sprite in collision_sprites if sprite is not self]
+        # movemement
+        self.has_moved = False
+        self.can_rotate = True
+        self.has_noticed = False
+        self.radius = int(radius)
+        self.view_directions = character_data['directions']
+        self.timers = {
+            'look_around': Timer(1500, True, True, self.random_view_direction),
+            'notice': Timer(500, func = self.start_move)
+            }
 
     def get_dialog(self):
         return self.character_data['dialog'][f'{'defeated' if self.character_data['defeated'] else 'default'}']
 
+    def raycast(self) -> None:
+        if check_connections(self.radius, self, self.player) and self.has_los() \
+            and not self.has_moved and not self.has_noticed:
+            self.player.block()
+            self.player.change_facing_direction(self.rect.center)
+            self.timers['notice'].activate()
+            self.can_rotate = False
+            self.has_noticed = True
+            self.player.noticed = True
+
+    def has_los(self) -> bool:
+        if vector(self.rect.center).distance_to(self.player.rect.center) < self.radius:
+            collisions = [bool(rect.clipline(self.rect.center, self.player.rect.center)) for rect in self.collision_rects]
+            return not any(collisions)
+
+    def start_move(self) -> None:
+        relation = (vector(self.player.rect.center) - vector(self.rect.center)).normalize()
+        self.direction = vector(round(relation.x), round(relation.y))
+
+    def move(self, dt) -> None:
+        if not self.has_moved and self.direction:
+            if not self.hitbox.inflate(10,10).colliderect(self.player.hitbox):
+                self.rect.center += self.direction * self.speed * dt
+                self.hitbox.center = self.rect.center
+            else:
+                self.direction = vector(0,0)
+                self.has_moved = True
+                self.create_dialog(self)
+                self.player.noticed = False
+
+    def random_view_direction(self) -> None:
+        if self.can_rotate:
+            self.facing_direction = choice(self.view_directions)
+
     def update(self, dt) -> None:
+        for timer in self.timers.values():
+            timer.update()
         self.get_state()
         self.animate(dt)
+        if self.character_data['look_around']:
+            self.raycast()
+            self.move(dt)
 
 class Player(Entity):
     """ Player Sprite."""
@@ -69,6 +125,7 @@ class Player(Entity):
         super().__init__(pos, facing_direction, frames, groups)
         self.collision_sprites: pygame.sprite.Group = collision_sprites
         self.hitbox: FRect = self.rect.inflate(-self.rect.width*0.6, -75)
+        self.noticed = False
 
     def input(self) -> None:
         keys = pygame.key.get_pressed()

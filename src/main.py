@@ -5,12 +5,15 @@ from os.path import join
 import os
 from pyinstrument import Profiler
 
-from sprites import Sprite, AnimatedSprite, MonsterPatchSprite, BorderSprite, CollidableSprite
+from sprites import Sprite, AnimatedSprite, MonsterPatchSprite, BorderSprite, CollidableSprite, TransitionSprite
 from entities import Player, Character
 from groups import AllSprites
 from dialog import DialogTree
 from support import *
-from game_data import CHARACTER_DATA, MONSTER_DATA
+from monster import Monster
+from monster_index import MonsterIndex
+
+from game_data import CHARACTER_DATA
 from debug import debug
 
 class Game:
@@ -21,33 +24,62 @@ class Game:
         self.display_surface = pygame.display.set_mode((WINDOW_WIDTH,WINDOW_HEIGHT))
         pygame.display.set_caption('Monster Hunter')
         self.clock = pygame.time.Clock()
+        # player monsters
+        self.player_monsters = {
+            0: Monster('Ivieron', 32),
+            1: Monster('Atrox', 15),
+            2: Monster('Cindrill', 16),
+            3: Monster('Atrox', 10),
+            4: Monster('Sparchu', 11),
+            5: Monster('Gulfin', 9),
+            6: Monster('Jacana', 10),
+        }
         # groups
         self.all_sprites = AllSprites()
         self.collision_sprites = pygame.sprite.Group()
         self.character_sprites = pygame.sprite.Group()
+        self.transition_sprites = pygame.sprite.Group()
+
+        # transition / tint
+        self.transition_target = None
+        self.tint_surface = pygame.Surface((WINDOW_WIDTH,WINDOW_HEIGHT))
+        self.tint_mode = 'untint'
+        self.tint_progress = 0
+        self.tint_direction = -1
+        self.tint_speed = 600
 
         self.import_assets()
         # self.setup(self.tmx_maps['hospital'], 'world')
         self.setup(self.tmx_maps['world'], 'house')
+
+        # overlays
         self.dialog_tree = None
+        self.monster_index = MonsterIndex(self.player_monsters, self.fonts, self.monster_frames)
+        self.index_open = False
 
     def import_assets(self) -> None:
-        self.tmx_maps: dict[TiledMap] = {
-            'world': load_pygame(join('..','data','maps','world.tmx')),
-            'hospital': load_pygame(join('..','data','maps','hospital.tmx'))
-            }
-        
+        self.tmx_maps: dict[TiledMap] = tmx_importer('..','data', 'maps')
+
         self.overworld_frames = {
             'water': import_folder('..','graphics','tilesets','water'),
             'coast': coast_importer(24, 12, '..','graphics','tilesets','coast'),
             'characters': all_character_import('..','graphics','characters')}
         # print(self.overworld_frames['characters']['blond'])
 
-        self.fonts = {
-            'dialog': pygame.font.Font(join('..','graphics', 'fonts', 'PixeloidSans.ttf'), 30)
+        self.fonts: dict[pygame.Font] = {
+            'dialog': pygame.font.Font(join('..','graphics', 'fonts', 'PixeloidSans.ttf'), 30),
+            'regular': pygame.font.Font(join('..','graphics', 'fonts', 'PixeloidSans.ttf'), 18),
+            'small': pygame.font.Font(join('..','graphics', 'fonts', 'PixeloidSans.ttf'), 14),
+            'bold': pygame.font.Font(join('..','graphics', 'fonts', 'dogicapixelbold.otf'), 20)
             }
+        self.monster_frames: dict[Surface] = {
+            'icons' : import_folder_dict('..','graphics','icons'),
+        }
 
     def setup(self, tmx_map:TiledMap, player_start_pos) -> None:
+        # clear the map
+        for group in (self.all_sprites, self.collision_sprites, self.transition_sprites, self.character_sprites):
+            group.empty()
         # Terrain Tiles
         for layer in ['Terrain', 'Terrain Top']:
             for x,y,surf in tmx_map.get_layer_by_name(layer).tiles():
@@ -58,6 +90,13 @@ class Game:
                 Sprite((obj.x,obj.y), obj.image, self.all_sprites, WORLD_LAYERS['top'])
             else:
                 CollidableSprite((obj.x,obj.y), obj.image, [self.all_sprites, self.collision_sprites]) 
+        # Transition Objects
+        for obj in tmx_map.get_layer_by_name('Transition'):
+            TransitionSprite(pos=(obj.x,obj.y), 
+                            size=(obj.width, obj.height), 
+                            target=(obj.properties['target'], obj.properties['pos']),
+                            groups=self.transition_sprites)
+
         # Collision Objects
         for obj in tmx_map.get_layer_by_name('Collisions'):
             BorderSprite((obj.x,obj.y), pygame.Surface((obj.width, obj.height)), [self.collision_sprites])
@@ -92,8 +131,13 @@ class Game:
                     facing_direction= obj.properties['direction'],
                     frames= self.overworld_frames['characters'][obj.properties['graphic']],
                     groups= [self.all_sprites, self.collision_sprites, self.character_sprites], 
-                    character_data= CHARACTER_DATA[obj.properties['character_id']])
-
+                    character_data= CHARACTER_DATA[obj.properties['character_id']],
+                    player=self.player,
+                    create_dialog=self.create_dialog,
+                    collision_sprites=self.collision_sprites,
+                    radius= obj.properties['radius'])
+    
+    # Dialog System
     def input(self) -> None:
         if not self.dialog_tree:
             keys = pygame.key.get_just_pressed()
@@ -103,19 +147,46 @@ class Game:
                         self.player.block()
                         character.change_facing_direction(self.player.rect.center)
                         self.create_dialog(character)
+                        character.can_rotate = False
+            if keys[pygame.K_RETURN]:
+                self.index_open = not self.index_open
+                self.player.blocked = not self.player.blocked
 
     def create_dialog(self, character) -> None:
         if not self.dialog_tree:
             self.dialog_tree = DialogTree(character, self.player, self.all_sprites, self.fonts['dialog'], self.end_dialog)
 
-    def end_dialog(self, character):
+    def end_dialog(self, character) -> None:
         self.dialog_tree = None
         self.player.unblock()
+    
+    # Transition System
+    def transition_check(self) -> None:
+        sprites = [sprite for sprite in self.transition_sprites if sprite.rect.colliderect(self.player.hitbox)]
+        if sprites:
+            self.player.block()
+            self.transition_target = sprites[0].target
+            self.tint_mode = 'tint'
+    def tint_screen(self, dt) -> None:
+        if self.tint_mode == 'untint':
+            self.tint_progress -= self.tint_speed * dt
+
+
+        if self.tint_mode == 'tint':
+            self.tint_progress += self.tint_speed * dt
+            if self.tint_progress >= 255:
+                self.setup(self.tmx_maps[self.transition_target[0]], self.transition_target[1])
+                self.tint_mode = 'untint'
+                self.transition_target = None
+        self.tint_progress = max(0, min(self.tint_progress, 255))
+        self.tint_surface.set_alpha(self.tint_progress)
+        self.display_surface.blit(self.tint_surface, (0,0))
 
     def run(self) -> None:
         # profiler = Profiler()
         # profiler.start()
         while True:
+            self.display_surface.fill('black')
             dt = self.clock.tick() / 1000
             # limit the size of dt to prevent issues when moving the window
             max_dt = 0.1
@@ -128,15 +199,19 @@ class Game:
                     pygame.quit()
                     exit()
 
-            # game logic
+            # update
             self.input()
+            self.transition_check()
             self.all_sprites.update(dt)
-            self.display_surface.fill('black')
-            self.all_sprites.draw(self.player.rect.center)
+            
+            # drawing
+            self.all_sprites.draw(self.player)
             
             # overlays
             if self.dialog_tree: self.dialog_tree.update()
+            if self.index_open: self.monster_index.update(dt)
             debug(f'{self.clock.get_fps():.2f}')
+            self.tint_screen(dt)
             pygame.display.update()
 
 
