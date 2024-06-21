@@ -1,15 +1,18 @@
 import pygame.freetype
 from settings import *
 from random import choice
+from support import draw_bar
 
 class MonsterIndex():
     """Creates an index to manage and store Monsters"""
     def __init__(self, monsters, fonts, frames) -> None:
         self.display_surface = pygame.display.get_surface()
         self.monsters = monsters
-        self.fonts = fonts
+        self.frame_index = 0
+        self.fonts:dict[pygame.Font] = fonts
         # frames
         self.icon_frames = frames['icons']
+        self.monster_frames = frames['monsters']
         # tint surf
         self.tint_surf = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
         self.tint_surf.set_alpha(200)
@@ -26,8 +29,10 @@ class MonsterIndex():
         keys = pygame.key.get_just_pressed()
         if keys[pygame.K_UP]:
             self.index -= 1
+            self.frame_index = 0
         if keys[pygame.K_DOWN]:
             self.index += 1
+            self.frame_index = 0
         if keys[pygame.K_SPACE]:
             if self.selected_index != None:
                 selected_monster = self.monsters[self.selected_index]
@@ -89,11 +94,44 @@ class MonsterIndex():
         self.display_surface.blit(shadow_surf, (self.main_rect.left + self.list_width-4, self.main_rect.top))
     
     def display_main(self,dt) -> None:
+        # data
+        monster = self.monsters[self.index]
+        
         # main bg
         rect = pygame.FRect(self.main_rect.left + self.list_width, self.main_rect.top, \
                             self.main_rect.width - self.list_width, self.main_rect.height)
-        pygame.draw.rect(self.display_surface, COLORS['dark'], rect)
-
+        pygame.draw.rect(self.display_surface, COLORS['dark'], rect, 0, 12, 0, 12, 0)
+        # monster display
+        top_rect = pygame.FRect(rect.topleft,(rect.width, rect.width* 0.4))
+        pygame.draw.rect(self.display_surface, COLORS[monster.element], top_rect, 0,0,0,12)
+        # monster animation
+        self.frame_index += ANIMATION_SPEED * dt
+        frames = self.monster_frames[monster.name]
+        state = 'attack' if self.frame_index <= len(frames['attack']) else 'idle'
+        monster_surf = frames[state][int(self.frame_index)%len(frames[state])]
+        monster_rect = monster_surf.get_frect(center = top_rect.center)
+        self.display_surface.blit(monster_surf, monster_rect)
+        # name
+        name_surf: pygame.Surface = self.fonts['bold'].render(monster.name, False, COLORS['white'])
+        name_rect = name_surf.get_frect(topleft = top_rect.topleft + vector(10,10))
+        self.display_surface.blit(name_surf, name_rect)
+        # level
+        level_surf: pygame.Surface = self.fonts['regular'].render(f'Lvl: {monster.level}', False, COLORS['white'])
+        level_rect = level_surf.get_frect(bottomleft = top_rect.bottomleft + vector(10,-10))
+        self.display_surface.blit(level_surf, level_rect)
+        # XP bar
+        draw_bar(
+            surface=self.display_surface,
+            rect=pygame.FRect(level_rect.bottomleft, (100, 4)),
+            value= monster.xp, 
+            max_value= monster.level_up, 
+            color= COLORS['white'], 
+            bg_color= COLORS['dark'], 
+            radius= 1)
+        # element
+        element_surf: pygame.Surface = self.fonts['regular'].render(monster.element, False, COLORS['white'])
+        element_rect = element_surf.get_frect(bottomright = top_rect.bottomright + vector(-10,-10))
+        self.display_surface.blit(element_surf, element_rect)
     def update(self, dt) -> None:
         self.input()
         self.display_surface.blit(self.tint_surf, (0,0))

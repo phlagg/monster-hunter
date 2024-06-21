@@ -82,6 +82,24 @@ def coast_importer(cols, rows, *path) -> dict:
             new_dict[terrain][key] = [frame_dict[(pos[0] + index * 3 ,pos[1] + row)] for row in range(0, rows, 3)]
     return new_dict
 
+def tmx_importer(*path) -> dict[TiledMap]:
+    tmx_dict = {}
+    for folder_path, sub_folders, file_names in walk(join(*path)):
+        for file in file_names:
+            tmx_dict[file.split('.')[0]] = load_pygame(join(folder_path, file))
+    return tmx_dict
+
+def monster_importer(cols, rows, *path)-> dict[dict[Surface]]:
+    monster_dict = {}
+    for folder_path, sub_folders, image_names in walk(join(*path)):
+        for image in image_names:
+            image_name = image.split('.')[0]
+            monster_dict[image_name] = {}
+            frame_dict = import_tilemap(cols, rows, *path, image_name)
+            for row, key in enumerate(('idle', 'attack')):
+                monster_dict[image_name][key] = [frame_dict[(col, row)] for col in range(cols)]
+    return monster_dict
+# Game Functions
 def check_connections(radius, entity, target, tolerance = 30) -> None | Literal[True]:
     relation = vector(target.rect.center) - vector(entity.rect.center)
     if relation.length() < radius:
@@ -90,10 +108,9 @@ def check_connections(radius, entity, target, tolerance = 30) -> None | Literal[
         or entity.facing_direction == 'down' and relation.y > 0 and abs(relation.x) < tolerance \
         or entity.facing_direction == 'up' and relation.y < 0 and abs(relation.x) < tolerance :
             return True
-
-def tmx_importer(*path) -> dict[TiledMap]:
-    tmx_dict = {}
-    for folder_path, sub_folders, file_names in walk(join(*path)):
-        for file in file_names:
-            tmx_dict[file.split('.')[0]] = load_pygame(join(folder_path, file))
-    return tmx_dict
+def draw_bar(surface, rect, value, max_value, color, bg_color, radius = 1):
+    ratio = rect.width / max_value
+    bg_rect = rect.copy()
+    progress_rect = pygame.FRect(rect.topleft, (value* ratio, rect.height))
+    pygame.draw.rect(surface, bg_color, bg_rect, 0, radius)
+    pygame.draw.rect(surface, color, progress_rect, 0, radius)

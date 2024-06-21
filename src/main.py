@@ -72,8 +72,9 @@ class Game:
             'small': pygame.font.Font(join('..','graphics', 'fonts', 'PixeloidSans.ttf'), 14),
             'bold': pygame.font.Font(join('..','graphics', 'fonts', 'dogicapixelbold.otf'), 20)
             }
-        self.monster_frames: dict[Surface] = {
+        self.monster_frames: dict[dict[Surface]] = {
             'icons' : import_folder_dict('..','graphics','icons'),
+            'monsters': monster_importer(4, 2,'..','graphics', 'monsters')
         }
 
     def setup(self, tmx_map:TiledMap, player_start_pos) -> None:
